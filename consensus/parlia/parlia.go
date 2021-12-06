@@ -686,24 +686,6 @@ func (p *Parlia) Finalize(chain consensus.ChainHeaderReader, header *types.Heade
 			log.Error("init contract failed")
 		}
 	}
-	if header.Difficulty.Cmp(diffInTurn) != 0 {
-		spoiledVal := snap.supposeValidator()
-		signedRecently := false
-		for _, recent := range snap.Recents {
-			if recent == spoiledVal {
-				signedRecently = true
-				break
-			}
-		}
-		if !signedRecently {
-			log.Trace("slash validator", "block hash", header.Hash(), "address", spoiledVal)
-			err = p.slash(spoiledVal, state, header, cx, txs, receipts, systemTxs, usedGas, false)
-			if err != nil {
-				// it is possible that slash validator failed because of the slash channel is disabled.
-				log.Error("slash validator failed", "block hash", header.Hash(), "address", spoiledVal)
-			}
-		}
-	}
 	val := header.Coinbase
 	err = p.distributeIncoming(val, state, header, cx, txs, receipts, systemTxs, usedGas, false)
 	if err != nil {
@@ -731,28 +713,6 @@ func (p *Parlia) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *
 		err := p.initContract(state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
 		if err != nil {
 			log.Error("init contract failed")
-		}
-	}
-	if header.Difficulty.Cmp(diffInTurn) != 0 {
-		number := header.Number.Uint64()
-		snap, err := p.snapshot(chain, number-1, header.ParentHash, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		spoiledVal := snap.supposeValidator()
-		signedRecently := false
-		for _, recent := range snap.Recents {
-			if recent == spoiledVal {
-				signedRecently = true
-				break
-			}
-		}
-		if !signedRecently {
-			err = p.slash(spoiledVal, state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
-			if err != nil {
-				// it is possible that slash validator failed because of the slash channel is disabled.
-				log.Error("slash validator failed", "block hash", header.Hash(), "address", spoiledVal)
-			}
 		}
 	}
 	err := p.distributeIncoming(p.val, state, header, cx, &txs, &receipts, nil, &header.GasUsed, true)
@@ -1041,7 +1001,7 @@ func (p *Parlia) getCurrentValidators(blockHash common.Hash) ([]common.Address, 
 	return valz, nil
 }
 
-// slash spoiled validators
+// distribute reward
 func (p *Parlia) distributeIncoming(val common.Address, state *state.StateDB, header *types.Header, chain core.ChainContext,
 	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
 	coinbase := header.Coinbase
@@ -1052,26 +1012,6 @@ func (p *Parlia) distributeIncoming(val common.Address, state *state.StateDB, he
 	state.SetBalance(consensus.SystemAddress, big.NewInt(0))
 	state.AddBalance(coinbase, balance)
 	return nil
-}
-
-// slash spoiled validators
-func (p *Parlia) slash(spoiledVal common.Address, state *state.StateDB, header *types.Header, chain core.ChainContext,
-	txs *[]*types.Transaction, receipts *[]*types.Receipt, receivedTxs *[]*types.Transaction, usedGas *uint64, mining bool) error {
-	// method
-	method := "slash"
-
-	// get packed data
-	data, err := p.slashABI.Pack(method,
-		spoiledVal,
-	)
-	if err != nil {
-		log.Error("Unable to pack tx for slash", "error", err)
-		return err
-	}
-	// get system message
-	msg := p.getSystemMessage(header.Coinbase, common.HexToAddress(systemcontracts.SlashContract), data, common.Big0)
-	// apply message
-	return p.applyTransaction(msg, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
 }
 
 // init contract
