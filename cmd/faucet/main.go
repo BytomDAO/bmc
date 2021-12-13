@@ -17,7 +17,7 @@
 // faucet is an Ether faucet backed by a light client.
 package main
 
-//go:generate go-bindata -nometadata -o website.go faucet.html
+//go:generate go-bindata  -o website.go faucet.html
 //go:generate gofmt -w -s website.go
 
 import (
@@ -63,11 +63,12 @@ import (
 )
 
 var (
+	natFlag     = flag.String("net", "", "node nat ")
 	genesisFlag = flag.String("genesis", "", "Genesis json file to seed the chain with")
 	apiPortFlag = flag.Int("apiport", 8080, "Listener port for the HTTP API connection")
 	ethPortFlag = flag.Int("ethport", 30303, "Listener port for the devp2p connection")
 	bootFlag    = flag.String("bootnodes", "", "Comma separated bootnode enode URLs to seed with")
-	netFlag     = flag.Uint64("network", 0, "Network ID to use for the Ethereum protocol")
+	netFlag     = flag.Uint64("network", 12345, "Network ID to use for the Ethereum protocol")
 	statsFlag   = flag.String("ethstats", "", "Ethstats network monitoring auth string")
 
 	netnameFlag = flag.String("faucet.name", "", "Network name to assign to the faucet")
@@ -101,8 +102,9 @@ var (
 )
 
 var (
-	gitCommit = "" // Git SHA1 commit hash of the release (set via linker flags)
-	gitDate   = "" // Git commit date YYYYMMDD of the release (set via linker flags)
+	gitCommit                        = "" // Git SHA1 commit hash of the release (set via linker flags)
+	gitDate                          = "" // Git commit date YYYYMMDD of the release (set via linker flags)
+	indexData map[string]interface{} = nil
 )
 
 func main() {
@@ -115,7 +117,7 @@ func main() {
 	for i := 0; i < *tiersFlag; i++ {
 		// Calculate the amount for the next tier and format it
 		amount := float64(*payoutFlag) * math.Pow(2.5, float64(i))
-		amounts[i] = fmt.Sprintf("%s BNBs", strconv.FormatFloat(amount, 'f', -1, 64))
+		amounts[i] = fmt.Sprintf("%s BTMs", strconv.FormatFloat(amount, 'f', -1, 64))
 		if amount == 1 {
 			amounts[i] = strings.TrimSuffix(amounts[i], "s")
 		}
@@ -138,7 +140,6 @@ func main() {
 	if len(bep2eNumAmounts) != len(symbols) || len(symbols) != len(contracts) {
 		log.Crit("Length of bep2eContracts, bep2eSymbols, bep2eAmounts mismatch")
 	}
-
 	bep2eInfos := make(map[string]bep2eInfo, len(symbols))
 	for idx, s := range symbols {
 		n, ok := big.NewInt(0).SetString(bep2eNumAmounts[idx], 10)
@@ -159,13 +160,14 @@ func main() {
 		log.Crit("Failed to load the faucet template", "err", err)
 	}
 	website := new(bytes.Buffer)
-	err = template.Must(template.New("").Parse(string(tmpl))).Execute(website, map[string]interface{}{
-		"Network":    *netnameFlag,
-		"Amounts":    amounts,
-		"Recaptcha":  *captchaToken,
-		"NoAuth":     *noauthFlag,
+	indexData = map[string]interface{}{
+		"Network": *netnameFlag,
+		"Amounts": amounts,
+		//"Recaptcha":  *captchaToken,
+		//"NoAuth":     *noauthFlag,
 		"Bep2eInfos": bep2eInfos,
-	})
+	}
+	err = template.Must(template.New("").Parse(string(tmpl))).Execute(website, indexData)
 	if err != nil {
 		log.Crit("Failed to render the faucet template", "err", err)
 	}
@@ -202,7 +204,7 @@ func main() {
 		log.Crit("Failed to unlock faucet signer account", "err", err)
 	}
 	// Assemble and start the faucet light service
-	faucet, err := newFaucet(genesis, *ethPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes(), bep2eInfos)
+	faucet, err := newFaucet(*natFlag, genesis, *ethPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes(), bep2eInfos)
 	if err != nil {
 		log.Crit("Failed to start faucet", "err", err)
 	}
@@ -259,20 +261,28 @@ type wsConn struct {
 	wlock sync.Mutex
 }
 
-func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte, bep2eInfos map[string]bep2eInfo) (*faucet, error) {
+func newFaucet(natP string, genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte, bep2eInfos map[string]bep2eInfo) (*faucet, error) {
 	// Assemble the raw devp2p protocol stack
+	var n nat.Interface
+	if natP == "" {
+		n = nat.Any()
+	} else {
+		n, _ = nat.Parse(natP)
+	}
 	stack, err := node.New(&node.Config{
 		Name:    "geth",
 		Version: params.VersionWithCommit(gitCommit, gitDate),
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		NoUSB:   true,
 		P2P: p2p.Config{
-			NAT:              nat.Any(),
+			NAT:              n,
 			NoDiscovery:      true,
 			DiscoveryV5:      true,
 			ListenAddr:       fmt.Sprintf(":%d", port),
 			MaxPeers:         25,
 			BootstrapNodesV5: enodes,
+			StaticNodes:      enodes,
+			TrustedNodes:     enodes,
 		},
 	})
 	if err != nil {
@@ -342,7 +352,10 @@ func (f *faucet) close() error {
 func (f *faucet) listenAndServe(port int) error {
 	go f.loop()
 
-	http.HandleFunc("/", f.webHandler)
+	//http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	//	w.Write(f.index)
+	//})
+	http.HandleFunc("/api/token-info", f.webHandler)
 	http.HandleFunc("/api", f.apiHandler)
 	http.HandleFunc("/faucet-smart/api", f.apiHandler)
 	return http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
@@ -351,12 +364,21 @@ func (f *faucet) listenAndServe(port int) error {
 // webHandler handles all non-api requests, simply flattening and returning the
 // faucet website.
 func (f *faucet) webHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write(f.index)
+	w.Header().Set("content-type", "application/json")
+	bytes, err := json.Marshal(indexData)
+	if err != nil {
+		panic(err)
+	}
+	w.Write(bytes)
 }
 
 // apiHandler handles requests for Ether grants and transaction statuses.
 func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
-	upgrader := websocket.Upgrader{}
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -528,7 +550,7 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 		)
 		if timeout = f.timeouts[id]; time.Now().After(timeout) {
 			var tx *types.Transaction
-			if msg.Symbol == "BNB" {
+			if msg.Symbol == "BTM" {
 				// User wasn't funded recently, create the funding transaction
 				amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), ether)
 				amount = new(big.Int).Mul(amount, new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(msg.Tier)), nil))
@@ -799,7 +821,7 @@ func authTwitter(url string, tokenV1, tokenV2 string) (string, string, string, c
 	address := common.HexToAddress(string(regexp.MustCompile("0x[0-9a-fA-F]{40}").Find(body)))
 	if address == (common.Address{}) {
 		//lint:ignore ST1005 This error is to be displayed in the browser
-		return "", "", "", common.Address{}, errors.New("No Binance Smart Chain address found to fund")
+		return "", "", "", common.Address{}, errors.New("No Bytom Side Chain address found to fund")
 	}
 	var avatar string
 	if parts = regexp.MustCompile("src=\"([^\"]+twimg.com/profile_images[^\"]+)\"").FindStringSubmatch(string(body)); len(parts) == 2 {
@@ -925,7 +947,7 @@ func authFacebook(url string) (string, string, common.Address, error) {
 	address := common.HexToAddress(string(regexp.MustCompile("0x[0-9a-fA-F]{40}").Find(body)))
 	if address == (common.Address{}) {
 		//lint:ignore ST1005 This error is to be displayed in the browser
-		return "", "", common.Address{}, errors.New("No Binance Smart Chain address found to fund")
+		return "", "", common.Address{}, errors.New("No Bytom Side Chain address found to fund")
 	}
 	var avatar string
 	if parts = regexp.MustCompile("src=\"([^\"]+fbcdn.net[^\"]+)\"").FindStringSubmatch(string(body)); len(parts) == 2 {
@@ -941,7 +963,7 @@ func authNoAuth(url string) (string, string, common.Address, error) {
 	address := common.HexToAddress(regexp.MustCompile("0x[0-9a-fA-F]{40}").FindString(url))
 	if address == (common.Address{}) {
 		//lint:ignore ST1005 This error is to be displayed in the browser
-		return "", "", common.Address{}, errors.New("No Binance Smart Chain address found to fund")
+		return "", "", common.Address{}, errors.New("No Bytom Side Chain address found to fund")
 	}
 	return address.Hex() + "@noauth", "", address, nil
 }
