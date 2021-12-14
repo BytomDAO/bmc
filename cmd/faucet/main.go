@@ -63,7 +63,6 @@ import (
 )
 
 var (
-	natFlag     = flag.String("net", "", "node nat ")
 	genesisFlag = flag.String("genesis", "", "Genesis json file to seed the chain with")
 	apiPortFlag = flag.Int("apiport", 8080, "Listener port for the HTTP API connection")
 	ethPortFlag = flag.Int("ethport", 30303, "Listener port for the devp2p connection")
@@ -102,10 +101,17 @@ var (
 )
 
 var (
-	gitCommit                        = "" // Git SHA1 commit hash of the release (set via linker flags)
-	gitDate                          = "" // Git commit date YYYYMMDD of the release (set via linker flags)
-	indexData map[string]interface{} = nil
+	gitCommit                            = "" // Git SHA1 commit hash of the release (set via linker flags)
+	gitDate                              = "" // Git commit date YYYYMMDD of the release (set via linker flags)
+	indexData     map[string]interface{} = nil
+	tokenInfoData map[string]interface{} = nil
 )
+
+type bep2eTokenInfoView struct {
+	Symbol       string `json:"symbol"`
+	ContractAddr string `json:"contractAddr"`
+	Amount       string `json:"amount"`
+}
 
 func main() {
 	// Parse the flags and set up the logger to print everything requested
@@ -114,9 +120,11 @@ func main() {
 
 	// Construct the payout tiers
 	amounts := make([]string, *tiersFlag)
+	amountsNum := make([]float64, *tiersFlag)
 	for i := 0; i < *tiersFlag; i++ {
 		// Calculate the amount for the next tier and format it
 		amount := float64(*payoutFlag) * math.Pow(2.5, float64(i))
+		amountsNum[i] = amount
 		amounts[i] = fmt.Sprintf("%s BTMs", strconv.FormatFloat(amount, 'f', -1, 64))
 		if amount == 1 {
 			amounts[i] = strings.TrimSuffix(amounts[i], "s")
@@ -141,6 +149,7 @@ func main() {
 		log.Crit("Length of bep2eContracts, bep2eSymbols, bep2eAmounts mismatch")
 	}
 	bep2eInfos := make(map[string]bep2eInfo, len(symbols))
+	bep2eInfoViewArr := make([]bep2eTokenInfoView, len(symbols))
 	for idx, s := range symbols {
 		n, ok := big.NewInt(0).SetString(bep2eNumAmounts[idx], 10)
 		if !ok {
@@ -153,6 +162,11 @@ func main() {
 			Amount:    *n,
 			AmountStr: amountStr,
 		}
+		bep2eInfoViewArr[idx] = bep2eTokenInfoView{
+			Symbol:       s,
+			ContractAddr: common.HexToAddress(contracts[idx]).String(),
+			Amount:       amountStr,
+		}
 	}
 	// Load up and render the faucet website
 	tmpl, err := Asset("faucet.html")
@@ -161,11 +175,17 @@ func main() {
 	}
 	website := new(bytes.Buffer)
 	indexData = map[string]interface{}{
-		"Network": *netnameFlag,
-		"Amounts": amounts,
-		//"Recaptcha":  *captchaToken,
-		//"NoAuth":     *noauthFlag,
+		"Network":    *netnameFlag,
+		"Amounts":    amounts,
+		"Recaptcha":  *captchaToken,
+		"NoAuth":     *noauthFlag,
 		"Bep2eInfos": bep2eInfos,
+	}
+	tokenInfoData = map[string]interface{}{
+		"symbol":     "BTM",
+		"network":    *netnameFlag,
+		"amounts":    amountsNum,
+		"bep2eInfos": bep2eInfoViewArr,
 	}
 	err = template.Must(template.New("").Parse(string(tmpl))).Execute(website, indexData)
 	if err != nil {
@@ -204,7 +224,7 @@ func main() {
 		log.Crit("Failed to unlock faucet signer account", "err", err)
 	}
 	// Assemble and start the faucet light service
-	faucet, err := newFaucet(*natFlag, genesis, *ethPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes(), bep2eInfos)
+	faucet, err := newFaucet(genesis, *ethPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes(), bep2eInfos)
 	if err != nil {
 		log.Crit("Failed to start faucet", "err", err)
 	}
@@ -261,21 +281,15 @@ type wsConn struct {
 	wlock sync.Mutex
 }
 
-func newFaucet(natP string, genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte, bep2eInfos map[string]bep2eInfo) (*faucet, error) {
+func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte, bep2eInfos map[string]bep2eInfo) (*faucet, error) {
 	// Assemble the raw devp2p protocol stack
-	var n nat.Interface
-	if natP == "" {
-		n = nat.Any()
-	} else {
-		n, _ = nat.Parse(natP)
-	}
 	stack, err := node.New(&node.Config{
 		Name:    "geth",
 		Version: params.VersionWithCommit(gitCommit, gitDate),
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		NoUSB:   true,
 		P2P: p2p.Config{
-			NAT:              n,
+			NAT:              nat.Any(),
 			NoDiscovery:      true,
 			DiscoveryV5:      true,
 			ListenAddr:       fmt.Sprintf(":%d", port),
@@ -352,9 +366,9 @@ func (f *faucet) close() error {
 func (f *faucet) listenAndServe(port int) error {
 	go f.loop()
 
-	//http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	//	w.Write(f.index)
-	//})
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(f.index)
+	})
 	http.HandleFunc("/api/token-info", f.webHandler)
 	http.HandleFunc("/api", f.apiHandler)
 	http.HandleFunc("/faucet-smart/api", f.apiHandler)
@@ -365,7 +379,7 @@ func (f *faucet) listenAndServe(port int) error {
 // faucet website.
 func (f *faucet) webHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	bytes, err := json.Marshal(indexData)
+	bytes, err := json.Marshal(tokenInfoData)
 	if err != nil {
 		panic(err)
 	}
