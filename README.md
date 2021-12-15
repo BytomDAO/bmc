@@ -1,4 +1,4 @@
-Bytom Side Chain
+Bytom Sidechain
 ======
 
 [![Build Status](https://travis-ci.org/Bytom/bytom.svg)](https://travis-ci.org/Bytom/bytom) [![AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-brightgreen.svg)](./LICENSE)
@@ -53,23 +53,26 @@ make geth
 | :--------: | ------------------------------------------------------------ |
 | **`geth`** | Main Bytom Side Chain client binary. It is the entry point into the BMC network，capable of running as a full node (default), archive node (retaining all historical state) or a light node (retrieving data live). It has the same and more RPC and other interface as go-ethereum and can be used by other processes as a gateway into the BMC network via JSON RPC endpoints exposed on top of HTTP, WebSocket and/or IPC transports. `geth --help` and the [CLI page](https://geth.ethereum.org/docs/interface/command-line-options) for command line options. |
 
-## Running BMC
-1. download [testnet.zip](https://github.com/Bytom/bmc/releases/download/v.1.0.0/testnet.zip) or [mainnet.zip]()(todo...)
-2. init
+## Running BMC  
+### Download  
+Download [testnet.zip](https://github.com/Bytom/bmc/releases/download/v.1.0.0/testnet.zip) or [mainnet.zip]()(todo...)
+### Init
 ```shell
 geth  --datadir {{datadir}}  init genesis.json
 ```
-3. start
+### Start
 ```shell
 geth --config config.toml --datadir {{datadir}}  --cache 8000  --txlookuplimit 0
 ```
-4. connect bmc network with metamask
-   |     | Mainnet | Testnet  |
-   | :--------: | :-----------------:|:-----------------------------------------: |
-   | Chain ID | 188 |288|
-   | RPC url | https://mainnet.bmcchain.com |https://testnet.bmcchain.com|
-   
-   
+### Connect
+Connect BMC network with MetaMask
+
+|                 | Mainnet                      | Testnet                      | 
+|:----------------|------------------------------|:-----------------------------|
+| Network Name    | BMC                          | BMC Testnet                  |
+| Chain ID        | 188                          | 288                          |
+| RPC URL         | https://mainnet.bmcchain.com | https://testnet.bmcchain.com |
+| Currency Symbol | BTM                          | BTM                          |
 
 ## License
 
