@@ -70,7 +70,7 @@ Connect BMC network with MetaMask
 |                 | Mainnet                      | Testnet                      | 
 |:----------------|------------------------------|:-----------------------------|
 | Network Name    | BMC                          | BMC Testnet                  |
-| Chain ID        | 188                          | 288                          |
+| Chain ID        | 188                          | 189                          |
 | RPC URL         | https://mainnet.bmcchain.com | https://testnet.bmcchain.com |
 | Currency Symbol | BTM                          | BTM                          |
 
