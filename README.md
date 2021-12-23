@@ -57,12 +57,20 @@ make geth
 ### Download  
 Download [testnet.zip](https://github.com/Bytom/bmc/releases/download/v.1.0.0/testnet.zip) or [mainnet.zip]()(todo...)
 ### Init
+go to ```/bmc-main/build/bin``` file
 ```shell
 geth  --datadir {{datadir}}  init genesis.json
 ```
 ### Start
 ```shell
 geth --config config.toml --datadir {{datadir}}  --cache 8000  --txlookuplimit 0
+```
+### Check the Node
+```shell
+geth attach /{datadir}/node/geth.ipc
+
+>eth.blockNumber
+13872
 ```
 ### Connect
 Connect BMC network with MetaMask
