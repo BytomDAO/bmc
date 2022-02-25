@@ -37,13 +37,13 @@ $ go env GOROOT GOPATH
 - Get the source code
 
 ```shell
-git clone https://github.com/Bytom/bmc.git
+git clone https://github.com/Bytom/bmc.git $GOPATH/src/github.com/bytom/bmc
 ```
 
 - Build source code
 
 ```shell
-cd $GOPATH/src/github.com/go-ethereum/ethereum/cmd/geth 
+cd $GOPATH/src/github.com/bytom/bmc
 make geth 
 ```
 
