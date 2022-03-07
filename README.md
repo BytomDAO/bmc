@@ -57,7 +57,7 @@ make geth
 
 ### Download
 
-Download [testnet.zip](https://github.com/Bytom/bmc/releases/download/v.1.0.0/testnet.zip) or [mainnet.zip]()(todo...)
+Download [testnet.zip](https://github.com/Bytom/bmc/releases/download/v.1.0.0/testnet.zip) or [mainnet.zip](https://github.com/Bytom/bmc/releases/download/v1.0.1/mainnet.zip)
 
 ### Init
 
