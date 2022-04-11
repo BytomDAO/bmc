@@ -10,7 +10,7 @@
 
 GOBIN = ./build/bin
 GO ?= latest
-GORUN = env GO111MODULE=on GOPROXY="https://goproxy.cn,direct" go run
+GORUN = env GO111MODULE=on GOPROXY="https://goproxy.io,direct" go run
 
 geth:
 	$(GORUN) build/ci.go install ./cmd/geth
