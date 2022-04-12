@@ -41,6 +41,8 @@ var (
 	nielsUpgrade = make(map[string]*Upgrade)
 
 	mirrorUpgrade = make(map[string]*Upgrade)
+
+	brunoUpgrade = make(map[string]*Upgrade)
 )
 
 func init() {
@@ -91,6 +93,21 @@ func init() {
 		UpgradeName: "mirror",
 		Configs:     []*UpgradeConfig{},
 	}
+
+	brunoUpgrade[mainNet] = &Upgrade{
+		UpgradeName: "bruno",
+		Configs:     []*UpgradeConfig{},
+	}
+
+	brunoUpgrade[chapelNet] = &Upgrade{
+		UpgradeName: "bruno",
+		Configs:     []*UpgradeConfig{},
+	}
+
+	brunoUpgrade[rialtoNet] = &Upgrade{
+		UpgradeName: "bruno",
+		Configs:     []*UpgradeConfig{},
+	}
 }
 
 func UpgradeBuildInSystemContract(config *params.ChainConfig, blockNumber *big.Int, statedb *state.StateDB) {
@@ -121,6 +138,10 @@ func UpgradeBuildInSystemContract(config *params.ChainConfig, blockNumber *big.I
 
 	if config.IsOnMirrorSync(blockNumber) {
 		applySystemContractUpgrade(mirrorUpgrade[network], blockNumber, statedb, logger)
+	}
+
+	if config.IsOnBruno(blockNumber) {
+		applySystemContractUpgrade(brunoUpgrade[network], blockNumber, statedb, logger)
 	}
 
 	/*

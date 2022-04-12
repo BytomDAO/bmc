@@ -271,6 +271,7 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	config := &ethconfig.Config{Genesis: genesis}
 	config.Ethash.PowMode = ethash.ModeFake
 	config.SnapshotCache = 256
+	config.TriesInMemory = 128
 	ethservice, err := eth.New(n, config)
 	if err != nil {
 		t.Fatalf("can't create new ethereum service: %v", err)
@@ -464,7 +465,6 @@ func testBalanceAt(t *testing.T, client *rpc.Client) {
 }
 
 func testTransactionInBlockInterrupted(t *testing.T, client *rpc.Client) {
-	t.Skip("skip in ci")
 	ec := NewClient(client)
 
 	// Get current block by number
