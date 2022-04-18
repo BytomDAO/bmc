@@ -43,8 +43,8 @@ import (
 
 const (
 	fullProcessCheck       = 21 // On diff sync mode, will do full process every fullProcessCheck randomly
-	recentTime             = 2048 * 3
-	recentDiffLayerTimeout = 20
+	recentTime             = 1024 * 3
+	recentDiffLayerTimeout = 5
 	farDiffLayerTimeout    = 2
 )
 
@@ -68,15 +68,16 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 }
 
 type LightStateProcessor struct {
-	randomGenerator *rand.Rand
+	check int64
 	StateProcessor
 }
 
 func NewLightStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *LightStateProcessor {
 	randomGenerator := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
+	check := randomGenerator.Int63n(fullProcessCheck)
 	return &LightStateProcessor{
-		randomGenerator: randomGenerator,
-		StateProcessor:  *NewStateProcessor(config, bc, engine),
+		check:          check,
+		StateProcessor: *NewStateProcessor(config, bc, engine),
 	}
 }
 
@@ -86,7 +87,7 @@ func (p *LightStateProcessor) Process(block *types.Block, statedb *state.StateDB
 		allowLightProcess = posa.AllowLightProcess(p.bc, block.Header())
 	}
 	// random fallback to full process
-	if check := p.randomGenerator.Int63n(fullProcessCheck); allowLightProcess && check != 0 && len(block.Transactions()) != 0 {
+	if allowLightProcess && block.NumberU64()%fullProcessCheck != uint64(p.check) && len(block.Transactions()) != 0 {
 		var pid string
 		if peer, ok := block.ReceivedFrom.(PeerIDer); ok {
 			pid = peer.ID()
@@ -122,6 +123,10 @@ func (p *LightStateProcessor) Process(block *types.Block, statedb *state.StateDB
 			statedb.StopPrefetcher()
 			parent := p.bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 			statedb, err = state.New(parent.Root, p.bc.stateCache, p.bc.snaps)
+			statedb.SetExpectedStateRoot(block.Root())
+			if p.bc.pipeCommit {
+				statedb.EnablePipeCommit()
+			}
 			if err != nil {
 				return statedb, nil, nil, 0, err
 			}
@@ -147,9 +152,12 @@ func (p *LightStateProcessor) LightProcess(diffLayer *types.DiffLayer, block *ty
 	for _, c := range diffLayer.Codes {
 		fullDiffCode[c.Hash] = c.Code
 	}
-
+	stateTrie, err := statedb.Trie()
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	for des := range snapDestructs {
-		statedb.Trie().TryDelete(des[:])
+		stateTrie.TryDelete(des[:])
 	}
 	threads := gopool.Threads(len(snapAccounts))
 
@@ -190,7 +198,7 @@ func (p *LightStateProcessor) LightProcess(diffLayer *types.DiffLayer, block *ty
 				// fetch previous state
 				var previousAccount state.Account
 				stateMux.Lock()
-				enc, err := statedb.Trie().TryGet(diffAccount[:])
+				enc, err := stateTrie.TryGet(diffAccount[:])
 				stateMux.Unlock()
 				if err != nil {
 					errChan <- err
@@ -252,7 +260,7 @@ func (p *LightStateProcessor) LightProcess(diffLayer *types.DiffLayer, block *ty
 
 				//update storage
 				latestRoot := common.BytesToHash(latestAccount.Root)
-				if latestRoot != previousAccount.Root && latestRoot != types.EmptyRootHash {
+				if latestRoot != previousAccount.Root {
 					accountTrie, err := statedb.Database().OpenStorageTrie(addrHash, previousAccount.Root)
 					if err != nil {
 						errChan <- err
@@ -302,7 +310,7 @@ func (p *LightStateProcessor) LightProcess(diffLayer *types.DiffLayer, block *ty
 					return
 				}
 				stateMux.Lock()
-				err = statedb.Trie().TryUpdate(diffAccount[:], bz)
+				err = stateTrie.TryUpdate(diffAccount[:], bz)
 				stateMux.Unlock()
 				if err != nil {
 					errChan <- err
@@ -329,7 +337,7 @@ func (p *LightStateProcessor) LightProcess(diffLayer *types.DiffLayer, block *ty
 	}
 
 	// Do validate in advance so that we can fall back to full process
-	if err := p.bc.validator.ValidateState(block, statedb, diffLayer.Receipts, gasUsed); err != nil {
+	if err := p.bc.validator.ValidateState(block, statedb, diffLayer.Receipts, gasUsed, false); err != nil {
 		log.Error("validate state failed during diff sync", "error", err)
 		return nil, nil, 0, err
 	}
@@ -396,6 +404,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 	// initilise bloom processors
 	bloomProcessors := NewAsyncReceiptBloomGenerator(txNum)
+	statedb.MarkFullProcessed()
 
 	// usually do have two tx, one for validator set contract, another for system reward contract.
 	systemTxs := make([]*types.Transaction, 0, 2)
