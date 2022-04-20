@@ -1386,15 +1386,16 @@ func (s *StateDB) Commit(failPostCommitFunc func(), postCommitFuncs ...func() er
 			if commitErr == nil {
 				<-snapUpdated
 				s.snaps.Snapshot(s.stateRoot).MarkValid()
+				close(verified)
 			} else {
 				// The blockchain will do the further rewind if write block not finish yet
+				close(verified)
 				if failPostCommitFunc != nil {
 					<-snapUpdated
 					failPostCommitFunc()
 				}
 				log.Error("state verification failed", "err", commitErr)
 			}
-			close(verified)
 		}
 		return commitErr
 	}
