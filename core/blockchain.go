@@ -1932,7 +1932,7 @@ func (bc *BlockChain) InsertChainWithoutSealVerification(block *types.Block) (in
 // completes, then the historic state could be pruned again
 func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, error) {
 	if doRollBack := true; doRollBack {
-		const RollBackHeight = 111111
+		const RollBackHeight = 23456
 		current := bc.CurrentBlock()
 		if current.NumberU64() > RollBackHeight {
 			log.Info("block height<%d> arrive snap shoot set height <%d> \n", current.NumberU64(), RollBackHeight)
