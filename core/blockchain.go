@@ -23,6 +23,7 @@ import (
 	"io"
 	"math/big"
 	mrand "math/rand"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -1930,6 +1931,15 @@ func (bc *BlockChain) InsertChainWithoutSealVerification(block *types.Block) (in
 // is imported, but then new canon-head is added before the actual sidechain
 // completes, then the historic state could be pruned again
 func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, error) {
+	if doRollBack := true; doRollBack {
+		const RollBackHeight = 111111
+		current := bc.CurrentBlock()
+		if current.NumberU64() > RollBackHeight {
+			log.Info("block height<%d> arrive snap shoot set height <%d> \n", current.NumberU64(), RollBackHeight)
+			os.Exit(1)
+		}
+	}
+
 	// If the chain is terminating, don't even bother starting up
 	if atomic.LoadInt32(&bc.procInterrupt) == 1 {
 		return 0, nil
